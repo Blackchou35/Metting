@@ -347,6 +347,17 @@
                     </div>
                 </div>
 
+                <!-- 下載提示 -->
+                <div id="download-tip"
+                    class="hidden mx-4 mb-4 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex items-start gap-2.5">
+                    <i class="fa-solid fa-circle-info text-indigo-400 mt-0.5"></i>
+                    <div class="text-[10px] text-slate-400 leading-relaxed">
+                        <strong class="text-indigo-300">下載小技巧：</strong>
+                        檔案下載後會出現在瀏覽器的「下載項目」中。您可以點選檔名直接開啟，或點選右側的「資料夾」圖示前往儲存位置。
+                        <span class="block mt-1 text-slate-500 text-[9px]">※ Safari 用戶建議使用「照片」或「檔案」App 開啟錄音檔。</span>
+                    </div>
+                </div>
+
                 <div id="recordings-list" class="flex-1 overflow-y-auto space-y-4 pr-2">
                     <div id="empty-state" class="h-full flex flex-col items-center justify-center text-slate-600">
                         <i class="fa-solid fa-inbox text-5xl mb-4 opacity-20"></i>
@@ -583,6 +594,22 @@
             }
         };
 
+        // --- 錄音核心邏輯 ---
+        function getSupportedMimeType() {
+            const types = [
+                'audio/mp4',
+                'audio/aac',
+                'audio/mpeg',
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/wav'
+            ];
+            for (const type of types) {
+                if (MediaRecorder.isTypeSupported(type)) return type;
+            }
+            return '';
+        }
+
         async function startRecording() {
             const source = document.querySelector('input[name="source"]:checked').value;
             audioChunks = [];
@@ -611,10 +638,15 @@
                 }
 
                 setupVisualizer(stream);
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 64000 });
+                const options = { audioBitsPerSecond: 128000 };
+                const mimeType = getSupportedMimeType();
+                if (mimeType) options.mimeType = mimeType;
+
+                mediaRecorder = new MediaRecorder(stream, options);
                 mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
                 mediaRecorder.onstop = () => {
-                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const finalMime = mediaRecorder.mimeType || 'audio/webm';
+                    const blob = new Blob(audioChunks, { type: finalMime });
                     const now = new Date();
                     const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
                     addRecordingToList(blob, `Recording ${timestamp}`, timerDisplay.textContent);
@@ -760,21 +792,22 @@
             const downloadAudioBtn = item.querySelector('.download-audio-btn');
             const deleteBtn = item.querySelector('.delete-btn');
 
-            // 下載音訊檔案 - 終極穩定版 + 檔名優化 (支援 MP3 副檔名以符合使用者需求)
+            // 下載音訊檔案 - 修正版：使用正確副檔名確保檔案可開啟
             downloadAudioBtn.onclick = () => {
+                document.getElementById('download-tip').classList.remove('hidden');
                 let downloadName = fileName;
-                // 去除可能導致 OS 報錯的特殊字元
-                downloadName = downloadName.replace(/[\\/:*?"<>|]/g, '_');
+                const currentMime = blob.type || '';
 
-                // 如果是新錄音並沒有副檔名，加上 .mp3 (雖然實際可能是 webm，但大部分播放器能識別)
-                if (!downloadName.includes('.')) {
-                    downloadName = downloadName + '.mp3';
-                } else {
-                    // 如果原本是 .webm，使用者想要 .mp3，我們雖然沒轉換但也盡量滿足呈現
-                    if (downloadName.toLowerCase().endsWith('.webm')) {
-                        downloadName = downloadName.replace(/\.webm$/i, '.mp3');
-                    }
-                }
+                // 決定副檔名
+                let ext = '.mp3'; // 預設
+                if (currentMime.includes('webm')) ext = '.webm';
+                else if (currentMime.includes('mp4') || currentMime.includes('aac')) ext = '.m4a';
+                else if (currentMime.includes('wav')) ext = '.wav';
+                else if (currentMime.includes('ogg')) ext = '.ogg';
+
+                // 去除可能導致 OS 報錯的特殊字元
+                downloadName = downloadName.replace(/[\\/:*?"<>|]/g, '_').replace(/\.[^/.]+$/, '');
+                downloadName = downloadName + ext;
 
                 const a = document.createElement('a');
                 a.style.display = 'none';
