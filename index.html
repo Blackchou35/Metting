@@ -306,7 +306,7 @@
                     <div id="empty-state" class="h-full flex flex-col items-center justify-center text-slate-600">
                         <i class="fa-solid fa-inbox text-5xl mb-4 opacity-20"></i>
                         <p class="text-sm font-medium">尚未有錄音檔案</p>
-                        <p class="text-[10px] opacity-50 mt-1 text-center">錄音將保留在瀏覽器中，重新整理即會消失</p>
+                        <p class="text-[10px] opacity-50 mt-1 text-center">錄音將保留在瀏覽器中，重新整理或超過 240 分鐘即自動移除</p>
                     </div>
                 </div>
             </div>
@@ -350,7 +350,8 @@
                 </div>
 
                 <p class="text-[10px] text-slate-500 italic">
-                    API Key 將安全地儲存在您的瀏覽器本地端，不會上傳至任何伺服器。
+                    <i class="fa-solid fa-shield-halved text-indigo-400"></i> 為確保資訊安全，API Key
+                    僅供本次使用，重新整理頁面後將自動清除，不會儲存於任何地方。
                 </p>
             </div>
 
@@ -399,11 +400,49 @@
             document.getElementById('local-warning').classList.remove('hidden');
         }
 
-        // 儲存設定
-        let apiKey = localStorage.getItem('recorder_api_key') || '';
+        // 儲存設定（API Key 不再儲存）
+        let apiKey = '';
         let modelName = localStorage.getItem('recorder_model') || 'gemini-2.5-flash';
-        apiKeyInput.value = apiKey;
+
+        // 確保重新整理後 API Key 輸入框是空的
+        apiKeyInput.value = '';
         modelSelect.value = modelName;
+
+        apiKeyInput.addEventListener('input', (e) => {
+            apiKey = e.target.value.trim();
+            // 隱私修改：不再寫入 localStorage
+            // localStorage.setItem('recorder_api_key', apiKey);
+        });
+
+        modelSelect.addEventListener('change', (e) => {
+            modelName = e.target.value;
+            localStorage.setItem('recorder_model', modelName);
+        });
+
+        // --- 自動刪除邏輯 (240分鐘 = 4小時) ---
+        const RETENTION_MINUTES = 240;
+
+        setInterval(() => {
+            const now = Date.now();
+            const items = document.querySelectorAll('.recording-item');
+            let removedCount = 0;
+
+            items.forEach(item => {
+                const createdAt = parseInt(item.dataset.createdAt || '0');
+                if (now - createdAt > RETENTION_MINUTES * 60 * 1000) {
+                    item.remove();
+                    removedCount++;
+                }
+            });
+
+            if (removedCount > 0) {
+                if (recordingsList.children.length === 0) {
+                    emptyState.style.display = 'flex';
+                    clearAllBtn.classList.add('hidden');
+                }
+                console.log(`[Privacy] 自動清除了 ${removedCount} 個逾期的錄音檔案`);
+            }
+        }, 60000); // 每分鐘檢查一次
 
         // --- 初始化設定 ---
         settingsTrigger.onclick = () => settingsModal.classList.remove('hidden');
@@ -411,7 +450,8 @@
         saveSettings.onclick = () => {
             apiKey = apiKeyInput.value.trim();
             modelName = modelSelect.value;
-            localStorage.setItem('recorder_api_key', apiKey);
+            // 隱私修改：不再寫入 localStorage
+            // localStorage.setItem('recorder_api_key', apiKey);
             localStorage.setItem('recorder_model', modelName);
             settingsModal.classList.add('hidden');
         };
@@ -524,7 +564,10 @@
             clearAllBtn.classList.remove('hidden');
             const url = URL.createObjectURL(blob);
             const item = document.createElement('div');
-            item.className = "bg-white/5 border border-white/5 rounded-2xl p-4 transition hover:bg-white/[0.08]";
+            // 加入 class 和 時間戳記以供自動刪除功能使用
+            item.className = "recording-item bg-white/5 border border-white/5 rounded-2xl p-4 transition hover:bg-white/[0.08]";
+            item.dataset.createdAt = Date.now();
+
             item.innerHTML = `
                 <div class="flex justify-between items-center mb-4">
                     <div class="flex items-center gap-3">
