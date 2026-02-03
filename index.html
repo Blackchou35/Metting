@@ -260,8 +260,15 @@
                 <!-- 本地執行警告 -->
                 <div id="local-warning"
                     class="hidden mt-4 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-[10px] text-orange-400 leading-relaxed text-center">
-                    <i class="fa-solid fa-triangle-exclamation"></i> 偵測到本地執行：下載功能可能因瀏覽器限制而使檔名失效。建議使用 Live Server
-                    或手動為下載檔加上副檔名。
+                    <i class="fa-solid fa-triangle-exclamation"></i> 偵測到本地執行：下載功能可能因瀏覽器限制而使檔名失效。建議使用 GitHub Pages 或 Live
+                    Server。
+                </div>
+
+                <!-- 音訊格式說明 -->
+                <div
+                    class="mt-4 p-3 rounded-xl bg-indigo-500/5 border border-indigo-500/10 text-[9px] text-slate-500 leading-relaxed">
+                    <i class="fa-solid fa-circle-info text-indigo-400/50"></i>
+                    錄音採用 Google 推薦的 <b>WEBM</b> 高畫質格式（相容 Chrome/Edge/VLC）。如需 MP3，可下載後使用線上轉換工具。
                 </div>
             </div>
         </div>
@@ -573,11 +580,14 @@
             const downloadMdBtn = item.querySelector('.download-md-btn');
             const downloadAudioBtn = item.querySelector('.download-audio-btn');
 
-            // 下載音訊檔案 - 終極穩定版
+            // 下載音訊檔案 - 終極穩定版 + 檔名優化
             downloadAudioBtn.onclick = () => {
                 let downloadName = fileName;
-                if (!fileName.includes('.')) {
-                    downloadName = fileName + '.webm';
+                // 去除可能導致 OS 報錯的特殊字元
+                downloadName = downloadName.replace(/[\\/:*?"<>|]/g, '_');
+
+                if (!downloadName.includes('.')) {
+                    downloadName = downloadName + '.webm';
                 }
 
                 const a = document.createElement('a');
