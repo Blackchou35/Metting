@@ -520,10 +520,66 @@
             settingsModal.classList.add('hidden');
         };
 
+        // --- 背景錄音保活機制 (Silent Audio Keeper) ---
+        // 讓瀏覽器認為網頁正在播放音樂，從而允許在螢幕關閉時繼續執行 JavaScript 和錄音
+        let backgroundAudioContext = null;
+        let backgroundOscillator = null;
+
+        function startBackgroundKeeper() {
+            try {
+                // 必須在使用者點擊時創建 (User Gesture)
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                backgroundAudioContext = new AudioContext();
+
+                // 創建振盪器
+                backgroundOscillator = backgroundAudioContext.createOscillator();
+                backgroundOscillator.type = 'sine';
+                backgroundOscillator.frequency.setValueAtTime(440, backgroundAudioContext.currentTime); // 一般音高
+
+                // 關鍵：使用 GainNode 將音量降到極低 (趨近於0但不是純0，防止被系統優化掉)
+                const gainNode = backgroundAudioContext.createGain();
+                gainNode.gain.setValueAtTime(0.0001, backgroundAudioContext.currentTime);
+
+                backgroundOscillator.connect(gainNode);
+                gainNode.connect(backgroundAudioContext.destination);
+
+                backgroundOscillator.start();
+                console.log('Background Audio Keeper Started (Mode: Silent Oscillator)');
+
+                // 更新 UI 提示
+                systemHint.innerHTML = '<i class="fa-solid fa-moon"></i> 已啟用背景錄音模式 (可關螢幕)';
+            } catch (e) {
+                console.warn('Failed to start background keeper:', e);
+            }
+        }
+
+        function stopBackgroundKeeper() {
+            if (backgroundOscillator) {
+                try {
+                    backgroundOscillator.stop();
+                    backgroundOscillator.disconnect();
+                } catch (e) { }
+                backgroundOscillator = null;
+            }
+
+            if (backgroundAudioContext) {
+                try {
+                    backgroundAudioContext.close();
+                } catch (e) { }
+                backgroundAudioContext = null;
+            }
+            systemHint.innerHTML = ''; // 清除提示
+        }
+
         // --- 錄音邏輯 ---
         mainBtn.onclick = async () => {
-            if (!isRecording) startRecording();
-            else stopRecording();
+            if (!isRecording) {
+                startRecording();
+                startBackgroundKeeper(); // 啟動背景保活
+            } else {
+                stopRecording();
+                stopBackgroundKeeper(); // 停止背景保活
+            }
         };
 
         async function startRecording() {
