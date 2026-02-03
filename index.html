@@ -422,16 +422,33 @@
         // --- 自動刪除邏輯 (240分鐘 = 4小時) ---
         const RETENTION_MINUTES = 240;
 
-        setInterval(() => {
+        function updateRetentionTimers() {
             const now = Date.now();
             const items = document.querySelectorAll('.recording-item');
             let removedCount = 0;
 
             items.forEach(item => {
                 const createdAt = parseInt(item.dataset.createdAt || '0');
-                if (now - createdAt > RETENTION_MINUTES * 60 * 1000) {
+                const diff = now - createdAt;
+                const remaining = (RETENTION_MINUTES * 60 * 1000) - diff;
+
+                if (remaining <= 0) {
                     item.remove();
                     removedCount++;
+                } else {
+                    // 更新倒數計時顯示
+                    const hours = Math.floor(remaining / (1000 * 60 * 60));
+                    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+                    const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+                    const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                    const timerEl = item.querySelector('.retention-timer');
+                    if (timerEl) {
+                        // 剩餘 10 分鐘內變紅字警告
+                        const isUrgent = remaining < 10 * 60 * 1000;
+                        timerEl.innerHTML = `<i class="fa-regular fa-clock"></i> 剩餘時間：${timeString} 自動銷毀`;
+                        timerEl.className = `retention-timer text-[10px] mt-2 flex items-center gap-1.5 ${isUrgent ? 'text-red-400 animate-pulse' : 'text-slate-500'}`;
+                    }
                 }
             });
 
@@ -442,7 +459,10 @@
                 }
                 console.log(`[Privacy] 自動清除了 ${removedCount} 個逾期的錄音檔案`);
             }
-        }, 60000); // 每分鐘檢查一次
+        }
+
+        // 每秒更新一次 UI
+        setInterval(updateRetentionTimers, 1000);
 
         // --- 初始化設定 ---
         settingsTrigger.onclick = () => settingsModal.classList.remove('hidden');
@@ -608,6 +628,11 @@
                         </button>
                     </div>
                     <div class="result-content prose prose-invert max-w-none text-xs"></div>
+                </div>
+                
+                <!-- 倒數計時器 -->
+                <div class="retention-timer text-[10px] text-slate-500 mt-2 flex items-center gap-1.5">
+                    <i class="fa-regular fa-clock"></i> 剩餘時間：計算中... 自動銷毀
                 </div>
             `;
 
