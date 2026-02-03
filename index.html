@@ -864,13 +864,13 @@
 
                     updateProgress(100);
                     progressBar.style.backgroundColor = '#f87171'; // Red color
-                    statusText.innerHTML = `< i class="fa-solid fa-circle-exclamation text-red-500" ></i > <span class="text-red-400">發生錯誤</span>`;
+                    statusText.innerHTML = `<i class="fa-solid fa-circle-exclamation text-red-500"></i> <span class="text-red-400">發生錯誤</span>`;
 
                     let errorMsg = e.message;
                     // 特殊處理 CORS 錯誤或上傳失敗
                     if (e.message.includes("upload") || e.message.includes("Failed to fetch") || e.message.includes("NetworkError")) {
                         errorMsg = `
-                < strong > 連線被瀏覽器攔截(CORS)</strong > <br>
+                <strong>連線被瀏覽器攔截(CORS)</strong><br>
                     這是 Google API 的安全限制，不允許從「純網頁」直接上傳檔案。<br><br>
                         <span class="text-slate-400">解決方案：</span><br>
                             1. 請下載此錄音檔<br>
@@ -941,6 +941,7 @@
             // Step 2: 實際透過 XMLHttpRequest 上傳以追蹤進度
             return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
+                xhr.timeout = 300000; // 5 分鐘逾時（大檔需要更多時間）
                 xhr.open('PUT', uploadUrl);
                 xhr.setRequestHeader('X-Goog-Upload-Command', 'upload, finalize');
                 xhr.setRequestHeader('X-Goog-Upload-Offset', '0');
@@ -950,14 +951,31 @@
                 };
 
                 xhr.onload = () => {
+                    console.log('[DEBUG] Upload response status:', xhr.status);
+                    console.log('[DEBUG] Upload response:', xhr.responseText.substring(0, 500));
                     if (xhr.status === 200) {
-                        const data = JSON.parse(xhr.responseText);
-                        resolve(data.file.uri);
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            if (data.file && data.file.uri) {
+                                resolve(data.file.uri);
+                            } else {
+                                reject(new Error('上傳成功但無法取得檔案 URI。請稍後再試。'));
+                            }
+                        } catch (parseErr) {
+                            reject(new Error('上傳回應解析失敗: ' + parseErr.message));
+                        }
                     } else {
-                        reject(new Error("音訊上傳失敗 (Network Error)。"));
+                        reject(new Error(`音訊上傳失敗 (HTTP ${xhr.status}): ${xhr.responseText.substring(0, 200)}`));
                     }
                 };
-                xhr.onerror = () => reject(new Error("網路連線錯誤 (CORS Blocked)。"));
+                xhr.onerror = () => {
+                    console.error('[DEBUG] XHR onerror triggered');
+                    reject(new Error('網路連線錯誤。可能是 CORS 限制或網路不穩定。請改用 Google AI Studio 手動上傳。'));
+                };
+                xhr.ontimeout = () => {
+                    console.error('[DEBUG] XHR timeout');
+                    reject(new Error('上傳逾時。檔案可能太大或網路太慢，請嘗試較小的檔案。'));
+                };
                 xhr.send(blob);
             });
         }
@@ -1034,7 +1052,18 @@
                 })
             });
             const data = await res.json();
+            console.log('[DEBUG] Gemini API Response:', JSON.stringify(data).substring(0, 500));
             if (!res.ok) throw new Error(data.error?.message || "AI 生成摘要失敗。");
+
+            // 增加安全檢查：確保回傳的資料結構正確
+            if (!data.candidates || !data.candidates[0]) {
+                // 檢查是否是安全過濾阻止
+                if (data.promptFeedback?.blockReason) {
+                    throw new Error(`內容被安全過濾器阻止：${data.promptFeedback.blockReason}。請確認音訊內容符合使用規範。`);
+                }
+                throw new Error('無法取得 AI 回應。可能是 API 配額不足或音訊格式不支援，請稍後再試。');
+            }
+
             return data.candidates[0].content.parts[0].text;
         }
 
