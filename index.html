@@ -457,7 +457,17 @@
         const STORE_NAME = 'recordings';
 
         // 初始化 IndexedDB
-        function initDB() {
+        async function initDB() {
+            // 請求瀏覽器提供「持久化存儲」權限 (iPhone/iPad 特別重要，防止系統自動清空資料)
+            if (navigator.storage && navigator.storage.persist) {
+                try {
+                    const isPersisted = await navigator.storage.persist();
+                    console.log(`[Storage] 持久化存儲狀態: ${isPersisted ? '已啟用' : '未啟用 (由瀏覽器決定)'}`);
+                } catch (err) {
+                    console.warn('[Storage] 請求持久化出錯:', err);
+                }
+            }
+
             return new Promise((resolve, reject) => {
                 try {
                     const request = indexedDB.open(DB_NAME, 1);
