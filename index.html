@@ -450,6 +450,120 @@
         let analyser;
         let dataArray;
         let animationId;
+        let db; // IndexedDB 實例
+
+        // --- IndexedDB 持久化存儲 (安全版) ---
+        const DB_NAME = 'MeetingRecorderDB';
+        const STORE_NAME = 'recordings';
+
+        // 初始化 IndexedDB
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                try {
+                    const request = indexedDB.open(DB_NAME, 1);
+                    request.onupgradeneeded = (e) => {
+                        const database = e.target.result;
+                        if (!database.objectStoreNames.contains(STORE_NAME)) {
+                            database.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                        }
+                    };
+                    request.onsuccess = (e) => {
+                        db = e.target.result;
+                        resolve(db);
+                    };
+                    request.onerror = () => resolve(null); // 失敗時不拋錯，只是不使用 DB
+                } catch (err) {
+                    resolve(null);
+                }
+            });
+        }
+
+        // 儲存記錄到 DB (背景非阻塞)
+        function saveRecordToDB(record) {
+            if (!db) return;
+            try {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                store.put(record);
+            } catch (err) {
+                console.warn('[DB] 儲存失敗:', err);
+            }
+        }
+
+        // 從 DB 讀取所有記錄
+        function getAllRecordsFromDB() {
+            return new Promise((resolve) => {
+                if (!db) return resolve([]);
+                try {
+                    const transaction = db.transaction([STORE_NAME], 'readonly');
+                    const store = transaction.objectStore(STORE_NAME);
+                    const request = store.getAll();
+                    request.onsuccess = (e) => resolve(e.target.result || []);
+                    request.onerror = () => resolve([]);
+                } catch (err) {
+                    resolve([]);
+                }
+            });
+        }
+
+        // 從 DB 刪除記錄 (背景非阻塞)
+        function deleteRecordFromDB(id) {
+            if (!db) return;
+            try {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                store.delete(id);
+            } catch (err) {
+                console.warn('[DB] 刪除失敗:', err);
+            }
+        }
+
+        // 清空 DB (背景非阻塞)
+        function clearAllRecordsFromDB() {
+            if (!db) return;
+            try {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                store.clear();
+            } catch (err) {
+                console.warn('[DB] 清空失敗:', err);
+            }
+        }
+
+        // 更新 DB 中的摘要 (背景非阻塞)
+        function updateSummaryInDB(id, summary) {
+            if (!db) return;
+            try {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.get(id);
+                request.onsuccess = (e) => {
+                    const record = e.target.result;
+                    if (record) {
+                        record.summary = summary;
+                        store.put(record);
+                    }
+                };
+            } catch (err) {
+                console.warn('[DB] 更新摘要失敗:', err);
+            }
+        }
+
+        // 頁面載入時從 DB 恢復錄音
+        window.addEventListener('load', async () => {
+            await initDB();
+            if (db) {
+                const records = await getAllRecordsFromDB();
+                if (records.length > 0) {
+                    records.sort((a, b) => a.createdAt - b.createdAt);
+                    records.forEach(rec => {
+                        if (rec.blob) {
+                            addRecordingToList(rec.blob, rec.fileName, rec.duration, rec.createdAt, rec.id, rec.summary, true);
+                        }
+                    });
+                }
+            }
+        });
 
         // 偵測是否為本地文件執行
         if (window.location.protocol === 'file:') {
@@ -489,7 +603,9 @@
                 const remaining = (RETENTION_MINUTES * 60 * 1000) - diff;
 
                 if (remaining <= 0) {
+                    const itemId = item.dataset.id;
                     item.remove();
+                    if (itemId) deleteRecordFromDB(itemId); // 背景同步 DB
                     removedCount++;
                 } else {
                     // 更新倒數計時顯示
@@ -714,14 +830,30 @@
             fileInput.value = '';
         };
 
-        function addRecordingToList(blob, fileName, duration) {
+        function addRecordingToList(blob, fileName, duration, savedCreatedAt = null, savedId = null, savedSummary = null, fromDB = false) {
             emptyState.style.display = 'none';
             clearAllBtn.classList.remove('hidden');
             const url = URL.createObjectURL(blob);
             const item = document.createElement('div');
+            const id = savedId || `rec_${Date.now()}`;
+            const createdAt = savedCreatedAt || Date.now();
+
             // 加入 class 和 時間戳記以供自動刪除功能使用
             item.className = "recording-item bg-white/5 border border-white/5 rounded-2xl p-4 transition hover:bg-white/[0.08]";
-            item.dataset.createdAt = Date.now();
+            item.dataset.createdAt = createdAt;
+            item.dataset.id = id;
+
+            // 如果不是從 DB 載入，則背景存入 DB
+            if (!fromDB) {
+                saveRecordToDB({
+                    id,
+                    blob,
+                    fileName,
+                    duration,
+                    createdAt,
+                    summary: null
+                });
+            }
 
 
             item.innerHTML = `
@@ -832,7 +964,8 @@
             // 刪除按鈕功能
             deleteBtn.onclick = () => {
                 if (confirm('確定要刪除這筆錄音嗎？')) {
-                    item.remove();
+                    item.remove(); // 先更新 UI
+                    deleteRecordFromDB(id); // 背景同步 DB
                     if (recordingsList.children.length === 0) {
                         emptyState.style.display = 'flex';
                         clearAllBtn.classList.add('hidden');
@@ -841,8 +974,17 @@
             };
 
             // 複製摘要
-            let currentSummaryMd = '';
+            let currentSummaryMd = savedSummary || '';
+
+            // 如果從 DB 載入且有已存的摘要，直接顯示
+            if (savedSummary && fromDB) {
+                aiBox.classList.remove('hidden');
+                summaryActions.classList.remove('hidden');
+                resultContent.innerHTML = marked.parse(savedSummary);
+            }
+
             copySummaryBtn.onclick = async () => {
+
                 try {
                     await navigator.clipboard.writeText(currentSummaryMd);
                     copySummaryBtn.innerHTML = '<i class="fa-solid fa-check"></i> 已複製';
@@ -920,6 +1062,8 @@
                         summaryActions.classList.remove('hidden');
                         currentSummaryMd = summary;
                         resultContent.innerHTML = marked.parse(summary);
+                        // 背景儲存摘要到 DB
+                        updateSummaryInDB(id, summary);
                     }, 500);
 
                 } catch (e) {
@@ -1144,7 +1288,8 @@
 
         clearAllBtn.onclick = () => {
             if (confirm("確定清除所有錄音嗎？")) {
-                recordingsList.innerHTML = '';
+                recordingsList.innerHTML = ''; // 先更新 UI
+                clearAllRecordsFromDB(); // 背景同步 DB
                 emptyState.style.display = 'flex';
                 clearAllBtn.classList.add('hidden');
             }
