@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 會議錄音機 Pro (長錄音支援版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+        }
+
+        .main-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .visualizer-container {
+            height: 80px;
+            width: 100%;
+            background: #020617;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            position: relative;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        @keyframes pulse-indigo {
+            0% {
+                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(99, 102, 241, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+            }
+        }
+
+        .recording-pulse {
+            animation: pulse-indigo 2s infinite;
+        }
+
+        .prose {
+            color: #cbd5e1;
+            font-size: 0.875rem;
+            line-height: 1.7;
+        }
+
+        .prose strong {
+            color: #818cf8;
+        }
+
+        .prose ul {
+            list-style-type: disc;
+            padding-left: 1.25rem;
+        }
+
+        .prose table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.75rem;
+        }
+
+        .prose th,
+        .prose td {
+            border: 1px solid #334155;
+            padding: 0.5rem;
+            text-align: left;
+        }
+
+        .prose th {
+            background: #1e293b;
+        }
+
+        /* 復刻參考網站進度條 */
+        .progress-bar-fill {
+            background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%);
+            transition: width 0.3s ease;
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.5);
+        }
+
+        /* ========== 響應式設計 - 手機/平板優化 ========== */
+
+        /* 小螢幕手機 */
+        @media (max-width: 640px) {
+            body {
+                padding: 0;
+                font-size: 16px;
+                /* 防止 iOS 縮放 */
+            }
+
+            .glass-panel {
+                border-radius: 0;
+                height: 100vh;
+                max-height: none;
+            }
+
+            /* 左側面板 */
+            .glass-panel>div:first-child {
+                padding: 1rem;
+            }
+
+            /* 標題 */
+            h1 {
+                font-size: 1.25rem !important;
+            }
+
+            /* 計時器 */
+            #timer-display {
+                font-size: 2.5rem !important;
+            }
+
+            /* 主按鈕 */
+            #main-btn {
+                padding: 1rem !important;
+                font-size: 1rem !important;
+            }
+
+            /* 錄音來源選項 */
+            .glass-panel label {
+                padding: 0.75rem !important;
+            }
+
+            /* 右側面板 - 錄音庫 */
+            .glass-panel>div:last-child {
+                padding: 1rem;
+            }
+
+            /* 錄音項目 */
+            #recordings-list>div {
+                padding: 0.75rem !important;
+            }
+
+            /* 摘要內容 */
+            .prose {
+                font-size: 0.875rem !important;
+                line-height: 1.8 !important;
+            }
+
+            /* 摘要按鈕 */
+            .ai-btn,
+            .copy-summary-btn,
+            .download-md-btn {
+                padding: 0.5rem 0.75rem !important;
+                font-size: 0.75rem !important;
+            }
+
+            /* 設定 Modal */
+            #settings-modal>div {
+                margin: 0.5rem;
+                padding: 1.5rem;
+                max-height: 90vh;
+                overflow-y: auto;
+            }
+        }
+
+        /* 平板裝置 */
+        @media (min-width: 641px) and (max-width: 1024px) {
+            .glass-panel {
+                height: 95vh;
+            }
+
+            .prose {
+                font-size: 0.9rem !important;
+            }
+        }
+
+        /* 觸控優化 */
+        @media (hover: none) and (pointer: coarse) {
+
+            button,
+            a,
+            label {
+                min-height: 44px;
+                /* Apple HIG 最小觸控區域 */
+            }
+
+            .ai-btn {
+                padding: 0.75rem 1rem !important;
+            }
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div
+        class="glass-panel w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-[750px]">
+
+        <!-- 左側面板 -->
+        <div class="w-full md:w-5/12 bg-slate-900/50 p-8 flex flex-col border-r border-white/5">
+            <div class="mb-10">
+                <div class="flex items-center gap-3 mb-2">
+                    <div
+                        class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                        <i class="fa-solid fa-microphone-lines text-white"></i>
+                    </div>
+                    <h1 class="text-2xl font-bold tracking-tight">AI 會議錄音機</h1>
+                </div>
+                <p class="text-xs text-slate-400">一字不漏，AI 自動生成摘要 (•̀ ω •́ )✧</p>
+            </div>
+
+            <div class="space-y-4 mb-10">
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">錄音來源</p>
+                <div class="grid grid-cols-1 gap-3">
+                    <label
+                        class="flex items-center p-4 rounded-2xl border border-white/5 bg-white/5 cursor-pointer hover:bg-white/10 transition group">
+                        <input type="radio" name="source" value="mic"
+                            class="w-4 h-4 text-indigo-500 border-none bg-slate-700" checked>
+                        <div class="ml-4">
+                            <span class="block text-sm font-medium">麥克風</span>
+                            <span class="block text-[10px] text-slate-500">錄製您的聲音與環境音</span>
+                        </div>
+                    </label>
+                    <label
+                        class="flex items-center p-4 rounded-2xl border border-white/5 bg-white/5 cursor-pointer hover:bg-white/10 transition group">
+                        <input type="radio" name="source" value="system"
+                            class="w-4 h-4 text-indigo-500 border-none bg-slate-700">
+                        <div class="ml-4">
+                            <span class="block text-sm font-medium">系統音訊</span>
+                            <span class="block text-[10px] text-slate-500">錄製視訊會議聲音</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="mt-auto flex flex-col items-center">
+                <div id="timer-display" class="text-5xl font-mono font-bold mb-8 text-white tracking-tighter">00:00:00
+                </div>
+                <button id="main-btn"
+                    class="w-full py-5 rounded-2xl font-bold text-white shadow-xl transition-all transform active:scale-95 flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-500">
+                    <i class="fa-solid fa-circle"></i> 開始錄音 (REC)
+                </button>
+                <button id="settings-trigger"
+                    class="mt-6 text-slate-500 hover:text-white text-xs flex items-center gap-2 transition">
+                    <i class="fa-solid fa-gear"></i> AI 摘要設定 (Gemini)
+                </button>
+
+                <!-- 本地執行警告 -->
+                <div id="local-warning"
+                    class="hidden mt-4 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-[10px] text-orange-400 leading-relaxed text-center">
+                    <i class="fa-solid fa-triangle-exclamation"></i> 偵測到本地執行：下載功能可能因瀏覽器限制而使檔名失效。建議使用 Live Server
+                    或手動為下載檔加上副檔名。
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側面板 -->
+        <div class="w-full md:w-7/12 flex flex-col bg-slate-900/20">
+            <div class="p-6 shrink-0 bg-slate-900/40 border-b border-white/5">
+                <div class="flex justify-between items-center mb-4">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">即時音訊監控</span>
+                    <span id="status-badge"
+                        class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">STANDBY</span>
+                </div>
+                <div class="visualizer-container">
+                    <canvas id="visualizer"></canvas>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-hidden flex flex-col p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="font-bold text-lg flex items-center gap-2">
+                        <i class="fa-solid fa-folder-open text-indigo-400"></i> 錄音庫 (Library)
+                    </h3>
+                    <div class="flex gap-2">
+                        <button id="upload-btn"
+                            class="text-xs bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl border border-white/5 transition flex items-center gap-2">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> 上傳音檔
+                        </button>
+                        <input type="file" id="file-input" accept="audio/*" class="hidden">
+                        <button id="clear-all"
+                            class="hidden text-xs text-red-400 hover:bg-red-500/10 px-3 py-2 rounded-xl transition">清除全部</button>
+                    </div>
+                </div>
+
+                <div id="recordings-list" class="flex-1 overflow-y-auto space-y-4 pr-2">
+                    <div id="empty-state" class="h-full flex flex-col items-center justify-center text-slate-600">
+                        <i class="fa-solid fa-inbox text-5xl mb-4 opacity-20"></i>
+                        <p class="text-sm font-medium">尚未有錄音檔案</p>
+                        <p class="text-[10px] opacity-50 mt-1 text-center">錄音將保留在瀏覽器中，重新整理即會消失</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 設定 Modal (復刻截圖風格) -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
+        <div
+            class="bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl p-8 border border-white/10 relative overflow-hidden">
+            <div class="absolute top-0 right-0 p-8 opacity-5">
+                <i class="fa-solid fa-wand-magic-sparkles text-8xl"></i>
+            </div>
+
+            <h2 class="text-xl font-bold mb-8 flex items-center gap-3 text-white">
+                <i class="fa-solid fa-square-check text-indigo-500"></i> AI 摘要設定(Gemini)
+            </h2>
+
+            <div class="space-y-6">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="text-sm font-medium text-slate-300">Gemini API Key</label>
+                        <a href="https://aistudio.google.com/app/apikey" target="_blank"
+                            class="text-indigo-400 text-[10px] hover:underline">取得 API 教學</a>
+                    </div>
+                    <div class="relative">
+                        <i class="fa-solid fa-key absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
+                        <input type="password" id="api-key-input" placeholder="請在此貼上您的 API 金鑰"
+                            class="w-full bg-slate-800/50 border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 focus:border-indigo-500 outline-none text-white text-sm transition">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-sm font-medium text-slate-300 block mb-2">選擇模型 (Model)</label>
+                    <select id="model-select"
+                        class="w-full bg-slate-800/50 border border-white/10 rounded-2xl px-4 py-3.5 outline-none text-white text-sm focus:border-indigo-500 transition">
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash (2026 最新推薦)</option>
+                        <option value="gemini-3-flash-preview">Gemini 3.0 Flash (2026 預覽版)</option>
+                        <option value="gemini-2.0-flash">Gemini 2.0 Flash (穩定版)</option>
+                    </select>
+                </div>
+
+                <p class="text-[10px] text-slate-500 italic">
+                    API Key 將安全地儲存在您的瀏覽器本地端，不會上傳至任何伺服器。
+                </p>
+            </div>
+
+            <div class="mt-10 flex justify-end gap-3">
+                <button id="close-settings"
+                    class="px-6 py-3 text-slate-400 hover:text-white transition text-sm font-medium">取消</button>
+                <button id="save-settings"
+                    class="px-8 py-3 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-500 transition text-sm font-bold shadow-lg shadow-indigo-600/30">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM 選取
+        const mainBtn = document.getElementById('main-btn');
+        const timerDisplay = document.getElementById('timer-display');
+        const recordingsList = document.getElementById('recordings-list');
+        const emptyState = document.getElementById('empty-state');
+        const visualizerCanvas = document.getElementById('visualizer');
+        const statusBadge = document.getElementById('status-badge');
+        const systemHint = document.getElementById('system-hint');
+        const clearAllBtn = document.getElementById('clear-all');
+        const uploadBtn = document.getElementById('upload-btn');
+        const fileInput = document.getElementById('file-input');
+        const settingsTrigger = document.getElementById('settings-trigger');
+        const settingsModal = document.getElementById('settings-modal');
+        const closeSettings = document.getElementById('close-settings');
+        const saveSettings = document.getElementById('save-settings');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const modelSelect = document.getElementById('model-select');
+
+        // 變數
+        let mediaRecorder;
+        let audioChunks = [];
+        let startTime;
+        let timerInterval;
+        let isRecording = false;
+        let stream;
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let animationId;
+
+        // 偵測是否為本地文件執行
+        if (window.location.protocol === 'file:') {
+            document.getElementById('local-warning').classList.remove('hidden');
+        }
+
+        // 儲存設定
+        let apiKey = localStorage.getItem('recorder_api_key') || '';
+        let modelName = localStorage.getItem('recorder_model') || 'gemini-2.5-flash';
+        apiKeyInput.value = apiKey;
+        modelSelect.value = modelName;
+
+        // --- 初始化設定 ---
+        settingsTrigger.onclick = () => settingsModal.classList.remove('hidden');
+        closeSettings.onclick = () => settingsModal.classList.add('hidden');
+        saveSettings.onclick = () => {
+            apiKey = apiKeyInput.value.trim();
+            modelName = modelSelect.value;
+            localStorage.setItem('recorder_api_key', apiKey);
+            localStorage.setItem('recorder_model', modelName);
+            settingsModal.classList.add('hidden');
+        };
+
+        // --- 錄音邏輯 ---
+        mainBtn.onclick = async () => {
+            if (!isRecording) startRecording();
+            else stopRecording();
+        };
+
+        async function startRecording() {
+            const source = document.querySelector('input[name="source"]:checked').value;
+            audioChunks = [];
+            try {
+                if (source === 'mic') {
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                } else {
+                    // System Audio: Get Display Media
+                    const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false }, selfBrowserSurface: "include" });
+
+                    // Check if user shared audio
+                    if (displayStream.getAudioTracks().length === 0) {
+                        alert("請務必勾選「分享音訊」！");
+                        displayStream.getTracks().forEach(t => t.stop());
+                        return;
+                    }
+
+                    // Extract ONLY audio track to avoid recording video data
+                    const audioTrack = displayStream.getAudioTracks()[0];
+                    stream = new MediaStream([audioTrack]);
+
+                    // Stop stream if user stops sharing via browser UI
+                    audioTrack.onended = () => {
+                        if (isRecording) stopRecording();
+                    };
+                }
+
+                setupVisualizer(stream);
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 64000 });
+                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                    addRecordingToList(blob, `錄音 ${new Date().toLocaleString()}`, timerDisplay.textContent);
+                    resetUI();
+                };
+                mediaRecorder.start(1000);
+                isRecording = true;
+                updateRecordingUI(true);
+                startTimer();
+            } catch (err) { console.error(err); }
+        }
+
+        function stopRecording() { if (mediaRecorder) mediaRecorder.stop(); stopStream(); }
+        function stopStream() { if (stream) stream.getTracks().forEach(t => t.stop()); }
+        function resetUI() {
+            clearInterval(timerInterval); isRecording = false; timerDisplay.textContent = "00:00:00";
+            mainBtn.innerHTML = '<i class="fa-solid fa-circle"></i> 開始錄音 (REC)';
+            mainBtn.classList.replace('bg-red-600', 'bg-indigo-600');
+            mainBtn.classList.remove('recording-pulse');
+            statusBadge.textContent = "STANDBY";
+            statusBadge.classList.replace('text-red-400', 'text-slate-400');
+        }
+        function updateRecordingUI(rec) {
+            mainBtn.innerHTML = '<i class="fa-solid fa-stop"></i> 停止錄音 (STOP)';
+            mainBtn.classList.replace('bg-indigo-600', 'bg-red-600');
+            mainBtn.classList.add('recording-pulse');
+            statusBadge.textContent = "RECORDING";
+            statusBadge.classList.replace('text-slate-400', 'text-red-400');
+        }
+        function startTimer() { startTime = Date.now(); timerInterval = setInterval(() => { timerDisplay.textContent = new Date(Date.now() - startTime).toISOString().substr(11, 8); }, 1000); }
+
+        // --- 音訊視覺化 ---
+        function setupVisualizer(s) {
+            audioContext = new AudioContext();
+            const src = audioContext.createMediaStreamSource(s);
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            src.connect(analyser);
+            draw();
+        }
+        function draw() {
+            animationId = requestAnimationFrame(draw);
+            analyser.getByteFrequencyData(dataArray);
+            const ctx = visualizerCanvas.getContext('2d');
+            visualizerCanvas.width = visualizerCanvas.parentElement.offsetWidth;
+            visualizerCanvas.height = visualizerCanvas.parentElement.offsetHeight;
+            ctx.fillStyle = '#020617';
+            ctx.fillRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+            const bw = (visualizerCanvas.width / dataArray.length) * 2;
+            let x = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                const bh = dataArray[i] / 2;
+                ctx.fillStyle = `rgba(99, 102, 241, ${bh / 128})`;
+                ctx.fillRect(x, visualizerCanvas.height - bh, bw, bh);
+                x += bw + 1;
+            }
+        }
+
+        // --- 錄音列表與 AI 處理 (關鍵：進度條實作) ---
+        uploadBtn.onclick = () => fileInput.click();
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) addRecordingToList(file, file.name, "已上傳檔案");
+            fileInput.value = '';
+        };
+
+        function addRecordingToList(blob, fileName, duration) {
+            emptyState.style.display = 'none';
+            clearAllBtn.classList.remove('hidden');
+            const url = URL.createObjectURL(blob);
+            const item = document.createElement('div');
+            item.className = "bg-white/5 border border-white/5 rounded-2xl p-4 transition hover:bg-white/[0.08]";
+            item.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400"><i class="fa-solid fa-waveform"></i></div>
+                        <div>
+                            <div class="font-bold text-slate-200 text-sm truncate max-w-[200px]">${fileName}</div>
+                            <div class="text-[10px] text-slate-500">${duration} • ${(blob.size / 1024 / 1024).toFixed(1)}MB</div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="ai-btn bg-indigo-600/20 text-indigo-400 px-4 py-1.5 rounded-xl text-[10px] font-bold hover:bg-indigo-600 hover:text-white transition">AI 摘要</button>
+                        <button class="download-audio-btn p-2 text-slate-500 hover:text-white" title="下載音訊"><i class="fa-solid fa-download"></i></button>
+                    </div>
+                </div>
+                <audio controls src="${url}" class="w-full h-8 opacity-60 mb-2"></audio>
+                
+                <!-- 復刻參考網站進度條 UI -->
+                <div class="ai-box hidden mt-4 pt-4 border-t border-white/5">
+                    <div class="progress-container hidden mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-[10px] text-slate-400 flex items-center gap-2">
+                                <i class="fa-solid fa-circle-notch fa-spin text-indigo-500"></i>
+                                <span class="status-text">AI 正在聆聽並撰寫會議報告...</span>
+                            </span>
+                            <span class="percent-text text-[10px] text-indigo-400 font-bold">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                            <div class="progress-bar-fill h-full w-0"></div>
+                        </div>
+                    </div>
+                    <!-- 摘要操作按鈕 -->
+                    <div class="summary-actions hidden flex gap-2 mb-3">
+                        <button class="copy-summary-btn bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-[10px] flex items-center gap-1.5 transition">
+                            <i class="fa-solid fa-copy"></i> 複製摘要
+                        </button>
+                        <button class="download-md-btn bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-[10px] flex items-center gap-1.5 transition">
+                            <i class="fa-solid fa-file-arrow-down"></i> 下載 MD
+                        </button>
+                    </div>
+                    <div class="result-content prose prose-invert max-w-none text-xs"></div>
+                </div>
+            `;
+
+            const aiBtn = item.querySelector('.ai-btn');
+            const aiBox = item.querySelector('.ai-box');
+            const progressContainer = item.querySelector('.progress-container');
+            const progressBar = item.querySelector('.progress-bar-fill');
+            const percentText = item.querySelector('.percent-text');
+            const statusText = item.querySelector('.status-text');
+            const resultContent = item.querySelector('.result-content');
+            const summaryActions = item.querySelector('.summary-actions');
+            const copySummaryBtn = item.querySelector('.copy-summary-btn');
+            const downloadMdBtn = item.querySelector('.download-md-btn');
+            const downloadAudioBtn = item.querySelector('.download-audio-btn');
+
+            // 下載音訊檔案 - 終極穩定版
+            downloadAudioBtn.onclick = () => {
+                let downloadName = fileName;
+                if (!fileName.includes('.')) {
+                    downloadName = fileName + '.webm';
+                }
+
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = downloadName;
+                document.body.appendChild(a);
+                a.click();
+
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                }, 100);
+            };
+
+            // 複製摘要
+            let currentSummaryMd = '';
+            copySummaryBtn.onclick = async () => {
+                try {
+                    await navigator.clipboard.writeText(currentSummaryMd);
+                    copySummaryBtn.innerHTML = '<i class="fa-solid fa-check"></i> 已複製';
+                    setTimeout(() => {
+                        copySummaryBtn.innerHTML = '<i class="fa-solid fa-copy"></i> 複製摘要';
+                    }, 2000);
+                } catch (err) {
+                    alert('複製失敗，請手動選取文字複製');
+                }
+            };
+
+            // 下載 MD 檔案 - 完整修復版本
+            downloadMdBtn.onclick = () => {
+                const mdBlob = new Blob([currentSummaryMd], { type: 'text/markdown;charset=utf-8' });
+                const blobUrl = URL.createObjectURL(mdBlob);
+                const baseName = fileName.replace(/\.[^/.]+$/, '') || '會議內容';
+                const downloadName = `會議摘要_${baseName}.md`;
+
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = blobUrl;
+                a.download = downloadName;
+                document.body.appendChild(a);
+                a.click();
+
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(blobUrl);
+                }, 100);
+            };
+
+            aiBtn.onclick = async () => {
+                if (!apiKey) { settingsModal.classList.remove('hidden'); return; }
+
+                // 檢查檔案大小 (建議限制 20MB 以內，避免瀏覽器崩潰或等太久)
+                if (blob.size > 500 * 1024 * 1024) {
+                    alert('檔案過大 (超過 500MB)。');
+                    return;
+                }
+
+                aiBox.classList.remove('hidden');
+                progressContainer.classList.remove('hidden');
+                // Status Fix: Reset error state
+                statusText.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-indigo-500"></i> <span class="status-text">AI 正在聆聽並撰寫會議報告...</span>';
+                statusText.className = 'text-[10px] text-slate-400 flex items-center gap-2';
+                progressBar.style.backgroundColor = '';
+                progressBar.parentElement.classList.remove('bg-red-900/50');
+                resultContent.innerHTML = '';
+
+                try {
+                    // --- 模擬與實際 File API 流程 ---
+                    statusText.textContent = "正在連線 AI 伺服器...";
+                    updateProgress(10);
+
+                    // 1. 上傳檔案到 Gemini File API
+                    statusText.textContent = "AI 正在讀取會議音訊內容...";
+                    const fileUri = await uploadToGeminiFileAPI(blob, (percent) => {
+                        updateProgress(10 + (percent * 0.7)); // 上傳佔比 70%
+                    }, fileName);
+
+                    // 2. 等待 AI 處理音訊
+                    statusText.textContent = "AI 正在分析語音脈絡...";
+                    updateProgress(85);
+                    await waitForFileActive(fileUri);
+
+                    // 3. 生成摘要
+                    statusText.textContent = "正在撰寫會議報告...";
+                    updateProgress(95);
+                    const mimeType = getMimeType(blob, fileName);
+                    const summary = await generateContent(fileUri, mimeType);
+
+                    updateProgress(100);
+                    setTimeout(() => {
+                        progressContainer.classList.add('hidden');
+                        summaryActions.classList.remove('hidden');
+                        currentSummaryMd = summary;
+                        resultContent.innerHTML = marked.parse(summary);
+                    }, 500);
+
+                } catch (e) {
+                    // UI Fix: Don't hide progress container, show error instead
+                    console.error("AI Error:", e);
+
+                    updateProgress(100);
+                    progressBar.style.backgroundColor = '#f87171'; // Red color
+                    statusText.innerHTML = `<i class="fa-solid fa-circle-exclamation text-red-500"></i> <span class="text-red-400">發生錯誤</span>`;
+
+                    let errorMsg = e.message;
+                    // 特殊處理 CORS 錯誤或上傳失敗
+                    if (e.message.includes("upload") || e.message.includes("Failed to fetch") || e.message.includes("NetworkError")) {
+                        errorMsg = `
+                            <strong>連線被瀏覽器攔截 (CORS)</strong><br>
+                            這是 Google API 的安全限制，不允許從「純網頁」直接上傳檔案。<br><br>
+                            <span class="text-slate-400">解決方案：</span><br>
+                            1. 請下載此錄音檔<br>
+                            2. 前往 <a href="https://aistudio.google.com/" target="_blank" class="text-indigo-400 underline">Google AI Studio</a> 手動上傳並貼上提示詞。
+                        `;
+                    } else if (e.message.includes("not found") || e.message.includes("404")) {
+                        errorMsg = `<strong>模型未找到</strong><br>請確認您的 API Key 是否有權限存取此模型，或嘗試切換其他模型 (例如 Gemini 1.5)。`;
+                    }
+
+                    resultContent.innerHTML = `<p class="text-red-400 bg-red-400/10 p-4 rounded-xl text-xs leading-relaxed mt-2">${errorMsg}</p>`;
+                }
+            };
+
+            function updateProgress(p) {
+                const rounded = Math.round(p);
+                progressBar.style.width = `${rounded}%`;
+                percentText.textContent = `${rounded}%`;
+            }
+
+            recordingsList.insertBefore(item, recordingsList.firstChild);
+        }
+
+        // --- 核心 API 工具 (File API 重點實作) ---
+
+        // 幫助函數：從檔案名稱判斷 MIME 類型
+        function getMimeType(blob, fileName) {
+            // 優先使用 blob 的 type，如果沒有則根據延伸名判斷
+            if (blob.type && blob.type !== '') return blob.type;
+
+            const ext = (fileName || '').split('.').pop().toLowerCase();
+            const mimeMap = {
+                'webm': 'audio/webm',
+                'm4a': 'audio/mp4',
+                'mp4': 'audio/mp4',
+                'mp3': 'audio/mpeg',
+                'wav': 'audio/wav',
+                'ogg': 'audio/ogg',
+                'flac': 'audio/flac',
+                'aac': 'audio/aac'
+            };
+            return mimeMap[ext] || 'audio/mpeg'; // 預設用 mpeg
+        }
+
+        async function uploadToGeminiFileAPI(blob, onProgress, fileName) {
+            const mimeType = getMimeType(blob, fileName);
+            const endpoint = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
+
+            // Step 1: 啟動 Resumable Upload
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'X-Goog-Upload-Protocol': 'resumable',
+                    'X-Goog-Upload-Command': 'start',
+                    'X-Goog-Upload-Header-Content-Length': blob.size,
+                    'X-Goog-Upload-Header-Content-Type': mimeType,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ file: { display_name: `Rec_${Date.now()}` } })
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(`無法啟動上傳流程 (${res.status})。可能是 API Key 錯誤或是跨域限制。`);
+            }
+
+            const uploadUrl = res.headers.get('x-goog-upload-url');
+
+            // Step 2: 實際透過 XMLHttpRequest 上傳以追蹤進度
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('PUT', uploadUrl);
+                xhr.setRequestHeader('X-Goog-Upload-Command', 'upload, finalize');
+                xhr.setRequestHeader('X-Goog-Upload-Offset', '0');
+
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) onProgress((e.loaded / e.total) * 100);
+                };
+
+                xhr.onload = () => {
+                    if (xhr.status === 200) {
+                        const data = JSON.parse(xhr.responseText);
+                        resolve(data.file.uri);
+                    } else {
+                        reject(new Error("音訊上傳失敗 (Network Error)。"));
+                    }
+                };
+                xhr.onerror = () => reject(new Error("網路連線錯誤 (CORS Blocked)。"));
+                xhr.send(blob);
+            });
+        }
+
+        async function waitForFileActive(uri) {
+            // File API 上傳後需要處理時間
+            let active = false;
+            // 根據模型選擇正確的 API 版本查詢檔案狀態
+            // 註：通常 getFile 也可以用 v1beta，但為了保險起見保持一致
+            const apiVersion = modelName.includes('preview') || modelName.includes('exp') ? 'v1alpha' : 'v1beta';
+
+            while (!active) {
+                const res = await fetch(`https://generativelanguage.googleapis.com/${apiVersion}/files/${uri.split('/').pop()}?key=${apiKey}`);
+                if (!res.ok) throw new Error("無法查詢檔案狀態");
+
+                const data = await res.json();
+                if (data.state === 'ACTIVE') active = true;
+                else if (data.state === 'FAILED') throw new Error("AI 無法解析此音訊格式。");
+                else await new Promise(r => setTimeout(r, 2000));
+            }
+        }
+
+        async function generateContent(uri, mimeType) {
+            // 動態決定 API 版本：實驗性/預覽模型使用 v1alpha，其他使用 v1beta
+            const apiVersion = modelName.includes('preview') || modelName.includes('exp') ? 'v1alpha' : 'v1beta';
+
+            // 台灣企業會議專用提示詞
+            const taiwanMeetingPrompt = `你是一位資深的台灣企業會議秘書，請以專業、精簡的方式整理這則會議錄音。
+
+請依照以下格式輸出 Markdown，使用台灣常用的商業用語：
+
+## 📌 會議主題
+(請根據會議內容自行判斷主題)
+
+## 📅 會議資訊
+- **會議日期**：由錄音推斷或寫「由錄音內容推斷」
+- **與會人員**：如有提到姓名/職稱請列出，否則寫「未明確」
+
+## 📝 會議大綱
+(依時間順序列出討論的重點議題)
+
+## 💬 重點段落摘要
+(將會議中的重要討論分段摘要，每段附時間戳如果可以判斷)
+
+## ✅ 決議事項
+(會議中確定的決策/結論)
+
+## 📝 交辦事項 (Action Items)
+| 編號 | 事項內容 | 負責人 | 預計完成日 |
+|------|----------|--------|------------|
+(如會議中有指派任務請列出，否則寫「本次會議未明確指派事項」)
+
+## 📝 備註
+(其他重要資訊或下次會議預告)
+
+---
+請確保：
+1. 全程使用「繁體中文」
+2. 使用台灣常用的商業用語（例如：會議、專案、提案、審核、核定、結案、追蹤等）
+3. 保持客觀中立，不要混淑不同語者的用詞
+4. 如果音訊難以辨識，請註明「音訊不清」而不要胡謅`;
+
+            const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent?key=${apiKey}`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: taiwanMeetingPrompt },
+                            { file_data: { mime_type: mimeType || "audio/webm", file_uri: uri } }
+                        ]
+                    }]
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error?.message || "AI 生成摘要失敗。");
+            return data.candidates[0].content.parts[0].text;
+        }
+
+        clearAllBtn.onclick = () => {
+            if (confirm("確定清除所有錄音嗎？")) {
+                recordingsList.innerHTML = '';
+                emptyState.style.display = 'flex';
+                clearAllBtn.classList.add('hidden');
+            }
+        };
+    </script>
+</body>
+
+</html>
